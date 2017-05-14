@@ -4,7 +4,7 @@
 make clean
 make
 
-# If compilation has produced a loadable kernel module
+# if compilation has produced a loadable kernel module
 if [ -f kernel_src/chardriver.ko ]
 then
 	# if the kernel module is already installed  
