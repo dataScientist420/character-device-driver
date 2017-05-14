@@ -30,15 +30,13 @@
 #include <linux/device.h>
 #include <asm/uaccess.h>
 
-/******************************************************************************
- Constants and Macros
-******************************************************************************/
+/* CONSTANTS */
 #define BUF_LENGTH  1024
 #define NAME        "s33drax"
 #define ERROR       -1
 
 /******************************************************************************
- 				Declaration of functions
+ 						Declaration of functions
 ******************************************************************************/
 static int device_open(struct inode *, struct file *);
 static int device_close(struct inode *, struct file *);
@@ -93,6 +91,7 @@ static int __init mod_init(void)
 	bdev.cdev->ops = &fops;
 	bdev.cdev->owner = THIS_MODULE;
 
+	// allocates a buffer of size BUF_LENGTH
 	if ((bdev.buf = kcalloc(BUF_LENGTH, sizeof(char), GFP_KERNEL)) == NULL) {
 		printk(KERN_ALERT "%s: failed to allocate buffer", NAME);
 		free_kalloc();
@@ -159,7 +158,7 @@ static ssize_t device_write(struct file *file, const char *src, size_t count,
 }
 
 /******************************************************************************
- Free the dynamic memory allocations.
+ Frees the dynamic memory allocations.
 ******************************************************************************/
 void free_kalloc()
 {
