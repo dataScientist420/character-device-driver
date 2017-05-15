@@ -28,6 +28,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/device.h>
+#include <linux/semaphore.h>
 #include <asm/uaccess.h>
 
 /* CONSTANTS */
@@ -57,6 +58,7 @@ static struct buffer_device {
 	char *buf;
 	struct cdev *cdev;
 	struct class *class;
+	struct semaphore sem;
 	dev_t num;	
 } bdev;
 
@@ -71,18 +73,18 @@ static int __init mod_init(void)
 
 	// allocates a range of character device numbers 	
 	if (alloc_chrdev_region(&bdev.num, 0, 1, NAME) < 0) {
-		printk(KERN_ALERT "%s: failed to allocate a major number", NAME);
+		printk(KERN_ALERT "\n%s: failed to allocate a major number", NAME);
 		return ERROR;
 	}
 	// allocate a device class
 	if ((bdev.class = class_create(THIS_MODULE, NAME)) == NULL) {
-		printk(KERN_ALERT "%s: failed to allocate class", NAME);
+		printk(KERN_ALERT "\n%s: failed to allocate class", NAME);
 		free_kalloc();
 		return ERROR;
 	}
 	// allocate a device file
 	if (device_create(bdev.class, NULL, bdev.num, NULL, NAME) == NULL) {
-		printk(KERN_ALERT "%s: failed to allocate device file", NAME);
+		printk(KERN_ALERT "\n%s: failed to allocate device file", NAME);
 		free_kalloc();
 		return ERROR;
 	}	
@@ -93,18 +95,20 @@ static int __init mod_init(void)
 
 	// allocates a buffer of size BUF_LENGTH
 	if ((bdev.buf = kcalloc(BUF_LENGTH, sizeof(char), GFP_KERNEL)) == NULL) {
-		printk(KERN_ALERT "%s: failed to allocate buffer", NAME);
+		printk(KERN_ALERT "\n%s: failed to allocate buffer", NAME);
 		free_kalloc();
 		return ERROR;
 	}
 	// add device to the kernel 
 	if (cdev_add(bdev.cdev, bdev.num, 1) == ERROR) {
-		printk(KERN_ALERT "%s: unable to add char device", NAME);
+		printk(KERN_ALERT "\n%s: unable to add char device", NAME);
 		free_kalloc();
 		return ERROR;
 	}
+	// initialize semaphore
+	sema_init(&bdev.sem, 1);
 
-	printk(KERN_ALERT "%s: loaded module", NAME);
+	printk(KERN_ALERT "\n%s: loaded module", NAME);
 	return 0;
 }
 
@@ -114,7 +118,7 @@ static int __init mod_init(void)
 static void __exit mod_exit(void) 
 {
   	free_kalloc();
-	printk(KERN_ALERT "%s: unloaded module", NAME); 
+	printk(KERN_ALERT "\n%s: unloaded module", NAME); 
 }
 
 /******************************************************************************
@@ -122,7 +126,7 @@ static void __exit mod_exit(void)
 ******************************************************************************/
 static int device_open(struct inode *inode, struct file *file)
 { 
-	printk(KERN_ALERT "%s: opened device", NAME);	
+	printk(KERN_ALERT "\n%s: opened device", NAME);	
 	return 0;
 }
 
@@ -131,7 +135,7 @@ static int device_open(struct inode *inode, struct file *file)
 ******************************************************************************/
 static int device_close(struct inode *inode, struct file *file)
 {
-	printk(KERN_INFO "%s: device close", NAME);	
+	printk(KERN_INFO "\n%s: device close", NAME);	
 	return 0;
 }
 
@@ -142,7 +146,7 @@ static int device_close(struct inode *inode, struct file *file)
 static ssize_t device_read(struct file *file, char *dst, size_t count, 
 							loff_t *f_offset) {
 	
-	printk(KERN_INFO "%s: reading from device (%lu bytes)", NAME, count);
+	printk(KERN_INFO "\n%s: reading from device", NAME);
 	return copy_to_user(dst, bdev.buf, count);
 }
 
@@ -153,8 +157,19 @@ static ssize_t device_read(struct file *file, char *dst, size_t count,
 static ssize_t device_write(struct file *file, const char *src, size_t count, 
 							loff_t *f_offset) {
 	
-	printk(KERN_INFO "%s: writing to device (%lu bytes)", NAME, count);
-	return copy_from_user(bdev.buf, src, count);
+		
+	// return an error code when device is already open for writting	
+	if (down_interruptible(&bdev.sem))
+		return -ERESTARTSYS;
+
+	printk(KERN_INFO "\n%s: writing to device", NAME);
+	
+	if (copy_from_user(bdev.buf, src, count) != 0)
+		return -EFAULT;
+
+	// free semaphore
+	up(&bdev.sem);
+	return 0;
 }
 
 /******************************************************************************
@@ -162,12 +177,11 @@ static ssize_t device_write(struct file *file, const char *src, size_t count,
 ******************************************************************************/
 void free_kalloc()
 {
+	// if pointers have valid addresses, the allocations are freed	
 	if (bdev.buf)
-		kfree(bdev.buf);
-	
+		kfree(bdev.buf);	
 	if (bdev.cdev)
 		cdev_del(bdev.cdev);
-	
 	if (bdev.class && bdev.num) {
 		device_destroy(bdev.class, bdev.num);
 		class_destroy(bdev.class);
