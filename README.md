@@ -1,6 +1,6 @@
 # Character Device Driver
 
-Implementation of a simple kernel module which allows a user to read/write data from/to a character device driver.
+Implementation of a simple kernel module which allows applications to read/write data from/to a character device driver.
 
 ### Linux
 
